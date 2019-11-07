@@ -1,23 +1,47 @@
 import asyncio
+import logging
+import sys
+
+SERVER_ADDRESS = ('localhost', 10000)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(name)s: %(message)s',
+    stream=sys.stderr,
+)
+log = logging.getLogger('main')
+
+event_loop = asyncio.get_event_loop()
 
 
-HOST = 'localhost'
-PORT = 9095
+async def echo_client(address):
+    log = logging.getLogger('echo_client')
 
-
-async def tcp_echo_client(host, port):
-    reader, writer = await asyncio.open_connection(host, port)
-    message = 'Hello, world'
-
-    writer.write(message.encode())
+    log.debug('connecting to {} port {}'.format(*address))
+    reader, writer = await asyncio.open_connection(*address)
     await writer.drain()
+    log.debug('waiting for response')
+    while True:
+        msg = input()
+        if msg.lower() != 'exit' and msg != "":
+            writer.write(msg.encode())
+            await writer.drain()
+            data = await reader.read(128)
+            if data:
+                log.debug('received {}'.format(data))
+            else:
+                log.debug('closing')
+                writer.close()
+                return
+        else:
+            log.debug('closing')
+            writer.close()
+            return
 
-    data = await reader.read(100)
-    writer.close()
-    # await writer.wait_closed()
-
-# asyncio.run(tcp_echo_client(HOST, PORT))
-
-loop = asyncio.get_event_loop()
-task = loop.create_task(tcp_echo_client(HOST, PORT))
-loop.run_until_complete(task)
+try:
+    event_loop.run_until_complete(
+        echo_client(SERVER_ADDRESS)
+    )
+finally:
+    log.debug('closing event loop')
+    event_loop.close()

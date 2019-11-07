@@ -1,31 +1,46 @@
 import asyncio
+import logging
+import sys
 
-HOST = 'localhost'
-PORT = 9095
+SERVER_ADDRESS = ('localhost', 10000)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(name)s: %(message)s',
+    stream=sys.stderr,
+)
+log = logging.getLogger('main')
+
+event_loop = asyncio.get_event_loop()
 
 
-async def handle_echo(reader, writer):
-    data = await reader.read(100)
-    message = data.decode()
+async def echo(reader, writer):
+    address = writer.get_extra_info('peername')
+    log = logging.getLogger('echo_{}_{}'.format(*address))
+    log.debug('connection accepted')
+    while True:
+        data = await reader.read(128)
+        if data:
+            log.debug('received {!r}'.format(data))
+            writer.write(data.decode().upper().encode())
+            await writer.drain()
+            log.debug('sent {!r}'.format(data))
+        else:
+            log.debug('closing')
+            writer.close()
+            return
 
-    writer.write(data)
-    await writer.drain()
+factory = asyncio.start_server(echo, *SERVER_ADDRESS)
+server = event_loop.run_until_complete(factory)
+log.debug('starting up on {} port {}'.format(*SERVER_ADDRESS))
 
-    writer.close()
-
-
-loop = asyncio.get_event_loop()
-coro = asyncio.start_server(handle_echo, HOST, PORT, loop=loop)
-server = loop.run_until_complete(coro)
-
-# Serve requests until Ctrl+C is pressed
-print('Serving on {}'.format(server.sockets[0].getsockname()))
 try:
-    loop.run_forever()
+    event_loop.run_forever()
 except KeyboardInterrupt:
     pass
+finally:
+    log.debug('closing server')
+    server.close()
+    event_loop.run_until_complete(server.wait_closed())
+    log.debug('closing event loop')
+    event_loop.close()
 
-# Close the server
-server.close()
-loop.run_until_complete(server.wait_closed())
-loop.close()
